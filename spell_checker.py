@@ -10,6 +10,20 @@ from typing import List, Tuple, Dict
 
 class LaTeXSpellChecker:
     def __init__(self):
+        # Compile regex patterns once for better performance
+        self._comment_pattern = re.compile(r'%.*$', re.MULTILINE)
+        self._latex_cmd_pattern = re.compile(r'\\[a-zA-Z]+\*?(\[[^\]]*\])?(\{[^}]*\})*')
+        self._math_inline_pattern = re.compile(r'\$.*?\$')
+        self._math_equation_pattern = re.compile(r'\\begin\{equation\}.*?\\end\{equation\}', re.DOTALL)
+        self._math_aligned_pattern = re.compile(r'\\begin\{aligned\}.*?\\end\{aligned\}', re.DOTALL)
+        self._figure_pattern = re.compile(r'\\begin\{figure\}.*?\\end\{figure\}', re.DOTALL)
+        self._table_pattern = re.compile(r'\\begin\{table\}.*?\\end\{table\}', re.DOTALL)
+        self._cite_pattern = re.compile(r'\\cite\{[^}]*\}')
+        self._ref_pattern = re.compile(r'\\ref\{[^}]*\}')
+        self._label_pattern = re.compile(r'\\label\{[^}]*\}')
+        self._whitespace_pattern = re.compile(r'\s+')
+        self._word_pattern = re.compile(r'\b[a-zA-Z]+\b')
+        
         # Common academic misspellings
         self.common_misspellings = {
             "occurances": "occurrences",
@@ -92,27 +106,27 @@ class LaTeXSpellChecker:
     def clean_latex_text(self, text: str) -> str:
         """Remove LaTeX commands and extract readable text"""
         # Remove comments
-        text = re.sub(r'%.*$', '', text, flags=re.MULTILINE)
+        text = self._comment_pattern.sub('', text)
         
         # Remove common LaTeX commands
-        text = re.sub(r'\\[a-zA-Z]+\*?(\[[^\]]*\])?(\{[^}]*\})*', ' ', text)
+        text = self._latex_cmd_pattern.sub(' ', text)
         
         # Remove math environments
-        text = re.sub(r'\$.*?\$', ' ', text)
-        text = re.sub(r'\\begin\{equation\}.*?\\end\{equation\}', ' ', text, flags=re.DOTALL)
-        text = re.sub(r'\\begin\{aligned\}.*?\\end\{aligned\}', ' ', text, flags=re.DOTALL)
+        text = self._math_inline_pattern.sub(' ', text)
+        text = self._math_equation_pattern.sub(' ', text)
+        text = self._math_aligned_pattern.sub(' ', text)
         
         # Remove figures and tables
-        text = re.sub(r'\\begin\{figure\}.*?\\end\{figure\}', ' ', text, flags=re.DOTALL)
-        text = re.sub(r'\\begin\{table\}.*?\\end\{table\}', ' ', text, flags=re.DOTALL)
+        text = self._figure_pattern.sub(' ', text)
+        text = self._table_pattern.sub(' ', text)
         
         # Remove bibliography
-        text = re.sub(r'\\cite\{[^}]*\}', ' ', text)
-        text = re.sub(r'\\ref\{[^}]*\}', ' ', text)
-        text = re.sub(r'\\label\{[^}]*\}', ' ', text)
+        text = self._cite_pattern.sub(' ', text)
+        text = self._ref_pattern.sub(' ', text)
+        text = self._label_pattern.sub(' ', text)
         
         # Clean up whitespace
-        text = re.sub(r'\s+', ' ', text)
+        text = self._whitespace_pattern.sub(' ', text)
         
         return text.strip()
     
@@ -129,7 +143,7 @@ class LaTeXSpellChecker:
                 continue
                 
             clean_line = self.clean_latex_text(line)
-            words = re.findall(r'\b[a-zA-Z]+\b', clean_line.lower())
+            words = self._word_pattern.findall(clean_line.lower())
             
             for word in words:
                 if word in self.common_misspellings:
@@ -154,7 +168,54 @@ class LaTeXSpellChecker:
                 continue
                 
             clean_line = self.clean_latex_text(line)
-            words = re.findall(r'\b[a-zA-Z]+\b', clean_line.lower())
+            words = self._word_pattern.findall(clean_line.lower())
+            
+            for i in range(len(words) - 1):
+                if words[i] == words[i + 1] and len(words[i]) > 2:
+                    issues.append((
+                        line_num,
+                        "Duplicated Word",
+                        f"Duplicated word '{words[i]}'",
+                        line.strip()
+                    ))
+        
+        return issues
+    
+    def check_spelling_content(self, content: str) -> List[Tuple[int, str, str, str]]:
+        """Check spelling in LaTeX content"""
+        issues = []
+        lines = content.split('\n')
+        
+        for line_num, line in enumerate(lines, 1):
+            # Skip LaTeX command lines and comments
+            if line.strip().startswith('%') or line.strip().startswith('\\'):
+                continue
+                
+            clean_line = self.clean_latex_text(line)
+            words = self._word_pattern.findall(clean_line.lower())
+            
+            for word in words:
+                if word in self.common_misspellings:
+                    issues.append((
+                        line_num,
+                        "Spelling Error",
+                        f"'{word}' should be '{self.common_misspellings[word]}'",
+                        line.strip()
+                    ))
+        
+        return issues
+    
+    def check_duplicated_words_content(self, content: str) -> List[Tuple[int, str, str, str]]:
+        """Check for duplicated words in LaTeX content"""
+        issues = []
+        lines = content.split('\n')
+        
+        for line_num, line in enumerate(lines, 1):
+            if line.strip().startswith('%'):
+                continue
+                
+            clean_line = self.clean_latex_text(line)
+            words = self._word_pattern.findall(clean_line.lower())
             
             for i in range(len(words) - 1):
                 if words[i] == words[i + 1] and len(words[i]) > 2:

@@ -9,7 +9,21 @@ import sys
 from typing import List, Tuple, Dict
 
 class AcademicStyleChecker:
-    def __init__(self):
+    def __init__(self, max_sentence_words=40, max_and_count=3):
+        # Configurable thresholds
+        self.max_sentence_words = max_sentence_words
+        self.max_and_count = max_and_count
+        
+        # Compile regex patterns once for better performance
+        self._comment_pattern = re.compile(r'%.*$', re.MULTILINE)
+        self._latex_cmd_pattern = re.compile(r'\\[a-zA-Z]+\*?(\[[^\]]*\])?(\{[^}]*\})*')
+        self._math_inline_pattern = re.compile(r'\$.*?\$')
+        self._math_equation_pattern = re.compile(r'\\begin\{equation\}.*?\\end\{equation\}', re.DOTALL)
+        self._figure_pattern = re.compile(r'\\begin\{figure\}.*?\\end\{figure\}', re.DOTALL)
+        self._table_pattern = re.compile(r'\\begin\{table\}.*?\\end\{table\}', re.DOTALL)
+        self._whitespace_pattern = re.compile(r'\s+')
+        self._word_pattern = re.compile(r'\b\w+\b')
+        self._starts_with_this_pattern = re.compile(r'^\s*(This|These)\s+(is|are|can|will|should|may)')
         # Informal expressions to avoid in academic writing
         self.informal_expressions = {
             "a lot of": "many, numerous, considerable",
@@ -101,21 +115,21 @@ class AcademicStyleChecker:
     def clean_latex_text(self, text: str) -> str:
         """Remove LaTeX commands and extract readable text"""
         # Remove comments
-        text = re.sub(r'%.*$', '', text, flags=re.MULTILINE)
+        text = self._comment_pattern.sub('', text)
         
         # Remove common LaTeX commands
-        text = re.sub(r'\\[a-zA-Z]+\*?(\[[^\]]*\])?(\{[^}]*\})*', ' ', text)
+        text = self._latex_cmd_pattern.sub(' ', text)
         
         # Remove math environments
-        text = re.sub(r'\$.*?\$', ' ', text)
-        text = re.sub(r'\\begin\{equation\}.*?\\end\{equation\}', ' ', text, flags=re.DOTALL)
+        text = self._math_inline_pattern.sub(' ', text)
+        text = self._math_equation_pattern.sub(' ', text)
         
         # Remove figures and tables
-        text = re.sub(r'\\begin\{figure\}.*?\\end\{figure\}', ' ', text, flags=re.DOTALL)
-        text = re.sub(r'\\begin\{table\}.*?\\end\{table\}', ' ', text, flags=re.DOTALL)
+        text = self._figure_pattern.sub(' ', text)
+        text = self._table_pattern.sub(' ', text)
         
         # Clean up whitespace
-        text = re.sub(r'\s+', ' ', text)
+        text = self._whitespace_pattern.sub(' ', text)
         
         return text.strip()
     
@@ -203,7 +217,7 @@ class AcademicStyleChecker:
                 continue
             
             clean_line = self.clean_latex_text(line)
-            words = re.findall(r'\b\w+\b', clean_line)
+            words = self._word_pattern.findall(clean_line)
             
             for word in words:
                 if word in self.personal_pronouns:
@@ -229,9 +243,9 @@ class AcademicStyleChecker:
             
             clean_line = self.clean_latex_text(line)
             
-            # Check for very long sentences (>40 words)
-            words = re.findall(r'\b\w+\b', clean_line)
-            if len(words) > 40:
+            # Check for very long sentences
+            words = self._word_pattern.findall(clean_line)
+            if len(words) > self.max_sentence_words:
                 issues.append((
                     line_num,
                     "Readability",
@@ -240,7 +254,7 @@ class AcademicStyleChecker:
                 ))
             
             # Check for sentences starting with "This" or "These" without clear antecedent
-            if re.match(r'^\s*(This|These)\s+(is|are|can|will|should|may)', clean_line):
+            if self._starts_with_this_pattern.match(clean_line):
                 issues.append((
                     line_num,
                     "Clarity",
@@ -250,7 +264,7 @@ class AcademicStyleChecker:
             
             # Check for excessive use of "and"
             and_count = clean_line.lower().count(' and ')
-            if and_count > 3:
+            if and_count > self.max_and_count:
                 issues.append((
                     line_num,
                     "Style",
@@ -273,6 +287,171 @@ class AcademicStyleChecker:
             content = f.read()
             lines = content.split('\n')
         
+        defined_terms = set()
+        
+        for line_num, line in enumerate(lines, 1):
+            if line.strip().startswith('%') or line.strip().startswith('\\'):
+                continue
+            
+            clean_line = self.clean_latex_text(line)
+            
+            # Check if technical terms are properly introduced
+            for term in technical_terms:
+                if term in clean_line and term not in defined_terms:
+                    # Check if it's defined in this line or nearby
+                    if '(' in clean_line and ')' in clean_line:
+                        defined_terms.add(term)
+                    else:
+                        issues.append((
+                            line_num,
+                            "Technical Language",
+                            f"Technical term '{term}' may need definition on first use",
+                            line.strip()
+                        ))
+        
+        return issues
+    
+    def check_informal_expressions_content(self, content: str) -> List[Tuple[int, str, str, str]]:
+        """Check for informal expressions in content"""
+        issues = []
+        lines = content.split('\n')
+        
+        for line_num, line in enumerate(lines, 1):
+            if line.strip().startswith('%') or line.strip().startswith('\\'):
+                continue
+            
+            clean_line = self.clean_latex_text(line).lower()
+            
+            for informal, formal in self.informal_expressions.items():
+                if informal in clean_line:
+                    issues.append((
+                        line_num,
+                        "Style Warning",
+                        f"Informal expression '{informal}' → Consider: {formal}",
+                        line.strip()
+                    ))
+        
+        return issues
+    
+    def check_wordy_expressions_content(self, content: str) -> List[Tuple[int, str, str, str]]:
+        """Check for wordy expressions that can be simplified in content"""
+        issues = []
+        lines = content.split('\n')
+        
+        for line_num, line in enumerate(lines, 1):
+            if line.strip().startswith('%') or line.strip().startswith('\\'):
+                continue
+            
+            clean_line = self.clean_latex_text(line).lower()
+            
+            for wordy, concise in self.wordy_expressions.items():
+                if wordy in clean_line:
+                    issues.append((
+                        line_num,
+                        "Conciseness",
+                        f"Wordy expression '{wordy}' → Consider: {concise}",
+                        line.strip()
+                    ))
+        
+        return issues
+    
+    def check_weak_expressions_content(self, content: str) -> List[Tuple[int, str, str, str]]:
+        """Check for weak or vague expressions in content"""
+        issues = []
+        lines = content.split('\n')
+        
+        for line_num, line in enumerate(lines, 1):
+            if line.strip().startswith('%') or line.strip().startswith('\\'):
+                continue
+            
+            clean_line = self.clean_latex_text(line).lower()
+            
+            for weak, stronger in self.weak_expressions.items():
+                if weak in clean_line:
+                    issues.append((
+                        line_num,
+                        "Precision",
+                        f"Vague expression '{weak}' → Consider: {stronger}",
+                        line.strip()
+                    ))
+        
+        return issues
+    
+    def check_personal_pronouns_content(self, content: str) -> List[Tuple[int, str, str, str]]:
+        """Check for personal pronouns in content"""
+        issues = []
+        lines = content.split('\n')
+        
+        for line_num, line in enumerate(lines, 1):
+            if line.strip().startswith('%') or line.strip().startswith('\\'):
+                continue
+            
+            clean_line = self.clean_latex_text(line)
+            words = self._word_pattern.findall(clean_line)
+            
+            for word in words:
+                if word in self.personal_pronouns:
+                    issues.append((
+                        line_num,
+                        "Academic Style",
+                        f"Personal pronoun '{word}' - Consider using passive voice or 'the authors'",
+                        line.strip()
+                    ))
+        
+        return issues
+    
+    def check_sentence_structure_content(self, content: str) -> List[Tuple[int, str, str, str]]:
+        """Check for sentence structure issues in content"""
+        issues = []
+        lines = content.split('\n')
+        
+        for line_num, line in enumerate(lines, 1):
+            if line.strip().startswith('%') or line.strip().startswith('\\'):
+                continue
+            
+            clean_line = self.clean_latex_text(line)
+            
+            # Check for very long sentences
+            words = self._word_pattern.findall(clean_line)
+            if len(words) > self.max_sentence_words:
+                issues.append((
+                    line_num,
+                    "Readability",
+                    f"Very long sentence ({len(words)} words) - Consider breaking into shorter sentences",
+                    line.strip()
+                ))
+            
+            # Check for sentences starting with "This" or "These" without clear antecedent
+            if self._starts_with_this_pattern.match(clean_line):
+                issues.append((
+                    line_num,
+                    "Clarity",
+                    "Sentence starts with 'This/These' - Consider being more specific",
+                    line.strip()
+                ))
+            
+            # Check for excessive use of "and"
+            and_count = clean_line.lower().count(' and ')
+            if and_count > self.max_and_count:
+                issues.append((
+                    line_num,
+                    "Style",
+                    f"Multiple 'and' connectors ({and_count}) - Consider using varied connectors",
+                    line.strip()
+                ))
+        
+        return issues
+    
+    def check_technical_language_content(self, content: str) -> List[Tuple[int, str, str, str]]:
+        """Check for appropriate technical language usage in content"""
+        issues = []
+        
+        # Terms that should be defined on first use
+        technical_terms = [
+            "CR3BP", "GMOS", "manifold", "heteroclinic", "quasi-periodic"
+        ]
+        
+        lines = content.split('\n')
         defined_terms = set()
         
         for line_num, line in enumerate(lines, 1):

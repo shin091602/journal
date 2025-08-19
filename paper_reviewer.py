@@ -21,32 +21,42 @@ class PaperReviewer:
         """Comprehensive review of the paper"""
         results = {}
         
+        # Read file once and share content
+        try:
+            with open(filepath, 'r', encoding='utf-8') as f:
+                file_content = f.read()
+        except (FileNotFoundError, IOError, UnicodeDecodeError) as e:
+            raise RuntimeError(f"Error reading file '{filepath}': {e}")
+        
+        if not file_content.strip():
+            raise ValueError(f"File '{filepath}' is empty")
+        
         print(f"🔍 Reviewing paper: {filepath}")
         print("=" * 60)
         
         # 1. Spell checking
         print("📝 Checking spelling and typos...")
-        spelling_issues = self.spell_checker.check_spelling(filepath)
-        duplicate_issues = self.spell_checker.check_duplicated_words(filepath)
+        spelling_issues = self.spell_checker.check_spelling_content(file_content)
+        duplicate_issues = self.spell_checker.check_duplicated_words_content(file_content)
         results['spelling'] = spelling_issues + duplicate_issues
         
         # 2. LaTeX validation
         print("🔧 Validating LaTeX syntax...")
-        bracket_issues = self.latex_validator.check_bracket_matching(filepath)
-        env_issues = self.latex_validator.check_environment_matching(filepath)
-        common_issues = self.latex_validator.check_common_latex_errors(filepath)
-        figure_issues = self.latex_validator.check_figure_references(filepath)
-        math_issues = self.latex_validator.check_math_environments(filepath)
+        bracket_issues = self.latex_validator.check_bracket_matching_content(file_content)
+        env_issues = self.latex_validator.check_environment_matching_content(file_content)
+        common_issues = self.latex_validator.check_common_latex_errors_content(file_content)
+        figure_issues = self.latex_validator.check_figure_references_content(file_content)
+        math_issues = self.latex_validator.check_math_environments_content(file_content)
         results['latex'] = bracket_issues + env_issues + common_issues + figure_issues + math_issues
         
         # 3. Academic style checking
         print("✍️  Checking academic writing style...")
-        informal_issues = self.style_checker.check_informal_expressions(filepath)
-        wordy_issues = self.style_checker.check_wordy_expressions(filepath)
-        weak_issues = self.style_checker.check_weak_expressions(filepath)
-        pronoun_issues = self.style_checker.check_personal_pronouns(filepath)
-        structure_issues = self.style_checker.check_sentence_structure(filepath)
-        technical_issues = self.style_checker.check_technical_language(filepath)
+        informal_issues = self.style_checker.check_informal_expressions_content(file_content)
+        wordy_issues = self.style_checker.check_wordy_expressions_content(file_content)
+        weak_issues = self.style_checker.check_weak_expressions_content(file_content)
+        pronoun_issues = self.style_checker.check_personal_pronouns_content(file_content)
+        structure_issues = self.style_checker.check_sentence_structure_content(file_content)
+        technical_issues = self.style_checker.check_technical_language_content(file_content)
         results['style'] = informal_issues + wordy_issues + weak_issues + pronoun_issues + structure_issues + technical_issues
         
         return results
@@ -142,10 +152,14 @@ class PaperReviewer:
         base_name = os.path.splitext(filepath)[0]
         report_file = f"{base_name}_review_report.txt"
         
-        with open(report_file, 'w', encoding='utf-8') as f:
-            f.write(report)
+        try:
+            with open(report_file, 'w', encoding='utf-8') as f:
+                f.write(report)
+            print(f"📄 Report saved to: {report_file}")
+        except (IOError, OSError) as e:
+            print(f"Warning: Could not save report to '{report_file}': {e}")
+            return None
         
-        print(f"📄 Report saved to: {report_file}")
         return report_file
 
 def main():
@@ -160,8 +174,15 @@ def main():
     
     filepath = sys.argv[1]
     
+    # Validate file path
+    filepath = os.path.abspath(filepath)
+    
     if not os.path.exists(filepath):
         print(f"Error: File '{filepath}' not found.")
+        sys.exit(1)
+    
+    if not os.access(filepath, os.R_OK):
+        print(f"Error: File '{filepath}' is not readable.")
         sys.exit(1)
     
     if not filepath.endswith('.tex'):
